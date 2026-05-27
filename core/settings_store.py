@@ -1,7 +1,10 @@
 import json
 import os
 
-SETTINGS_PATH = os.path.join('config', 'settings.json')
+# Store user secrets outside the git repository so API keys survive git pull/re-clone.
+SETTINGS_DIR = os.path.expanduser('~/.rigel')
+SETTINGS_PATH = os.path.join(SETTINGS_DIR, 'settings.json')
+LEGACY_SETTINGS_PATH = os.path.join('config', 'settings.json')
 AGENTS = ['RM-CEO', 'RM-SYS', 'RM-ANL', 'RM-DEV', 'RM-MEM']
 BASE_AGENT = {
     'provider': 'deepseek',
@@ -20,13 +23,37 @@ DEFAULT_SETTINGS = {
 }
 
 
+def _read_json(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        pass
+
+
 def ensure_settings_file():
-    os.makedirs('config', exist_ok=True)
+    os.makedirs(SETTINGS_DIR, exist_ok=True)
     if not os.path.exists(SETTINGS_PATH):
-        save_settings(DEFAULT_SETTINGS)
+        legacy = _read_json(LEGACY_SETTINGS_PATH)
+        if legacy:
+            _write_json(SETTINGS_PATH, _migrate_old_settings(legacy))
+        else:
+            _write_json(SETTINGS_PATH, DEFAULT_SETTINGS)
 
 
 def _migrate_old_settings(data):
+    if not isinstance(data, dict):
+        return DEFAULT_SETTINGS.copy()
     if 'agents' in data:
         return data
     old = BASE_AGENT.copy()
@@ -43,11 +70,7 @@ def _migrate_old_settings(data):
 
 def load_settings():
     ensure_settings_file()
-    try:
-        with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except Exception:
-        data = {}
+    data = _read_json(SETTINGS_PATH) or {}
     data = _migrate_old_settings(data)
     merged = DEFAULT_SETTINGS.copy()
     merged.update({k: v for k, v in data.items() if k != 'agents'})
@@ -63,22 +86,22 @@ def save_settings(settings):
     if 'agents' in settings:
         for name, cfg in settings['agents'].items():
             if name in current['agents'] and isinstance(cfg, dict):
+                cfg = cfg.copy()
+                # Empty API key means keep the old saved key.
                 if cfg.get('api_key', '') == '':
-                    cfg = cfg.copy()
                     cfg['api_key'] = current['agents'][name].get('api_key', '')
                 current['agents'][name].update(cfg)
     for key in ['system_language', 'agent_mode', 'save_history']:
         if key in settings:
             current[key] = settings[key]
-    os.makedirs('config', exist_ok=True)
-    with open(SETTINGS_PATH, 'w', encoding='utf-8') as f:
-        json.dump(current, f, ensure_ascii=False, indent=2)
-    return current
+    _write_json(SETTINGS_PATH, current)
+    return public_settings()
 
 
 def public_settings():
     data = load_settings()
     public = data.copy()
+    public['settings_path'] = SETTINGS_PATH
     public['agents'] = {}
     for name, cfg in data['agents'].items():
         safe = cfg.copy()
