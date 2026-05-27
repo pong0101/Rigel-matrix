@@ -12,6 +12,8 @@ class Task(BaseModel): task:str
 class Settings(BaseModel): data:dict
 @app.get('/')
 def root(): return FileResponse('dashboard/index.html')
+@app.get('/health')
+def health(): return {'status':'ok'}
 @app.get('/status')
 def status(): return get_system_status()
 @app.get('/history')
@@ -25,7 +27,7 @@ def run(task:Task): return process_task(task.task)
 @app.post('/update')
 def update_from_github():
     try:
-        result=subprocess.run(['git','pull'],capture_output=True,text=True,timeout=60)
-        return {'ok':result.returncode==0,'stdout':result.stdout,'stderr':result.stderr,'returncode':result.returncode,'note':'Restart Rigel Matrix if Python files changed.'}
+        result=subprocess.run(['bash','scripts/update_from_github.sh'],capture_output=True,text=True,timeout=180)
+        return {'ok':result.returncode==0,'stdout':result.stdout,'stderr':result.stderr,'returncode':result.returncode}
     except Exception as e:
         return {'ok':False,'error':str(e)}
