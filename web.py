@@ -1,3 +1,4 @@
+import subprocess
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -21,3 +22,10 @@ def settings(): return public_settings()
 def update_settings(s:Settings): return save_settings(s.data)
 @app.post('/run')
 def run(task:Task): return process_task(task.task)
+@app.post('/update')
+def update_from_github():
+    try:
+        result=subprocess.run(['git','pull'],capture_output=True,text=True,timeout=60)
+        return {'ok':result.returncode==0,'stdout':result.stdout,'stderr':result.stderr,'returncode':result.returncode,'note':'Restart Rigel Matrix if Python files changed.'}
+    except Exception as e:
+        return {'ok':False,'error':str(e)}
